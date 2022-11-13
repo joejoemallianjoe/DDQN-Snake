@@ -821,7 +821,7 @@ local LossData
 local RewData
 local Epsilon_Decay = 0.995
 local Rand = Random.new()
-local CopyWeightsEvery = 32
+local CopyWeightsEvery = 8
 local Gamma = 0.95
 
 --Default parameters
@@ -1507,6 +1507,7 @@ for a,b in pairs(ExperienceReplayTable) do
 
 		if Count == CopyWeightsEvery then
 			NeuralNetworkData.TNetwork = NeuralNetworkData.QNetwork
+			Count = 0
 		end
 		
 		if i % 100 == 0 then
