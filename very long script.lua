@@ -588,7 +588,7 @@ local LossData
 local RewData
 local Epsilon_Decay = 0.995
 local CopyWeightsEvery = 16
-local Gamma = 0.9
+local Gamma = 0.95
 local BatchSize = 64
 local MaxMemorySize = 10000
 
@@ -604,908 +604,848 @@ local HiddenLayerActivationFunction = 'ReLU'
 local OutputLayerActivationFunction = 'None'
 local Optimizer = 'SGD_Momentum'
 
-local function TestParameters()
-	local RS = game:GetService('ReplicatedStorage')
+local RS = game:GetService('ReplicatedStorage')
 
-	game.Players.PlayerAdded:Connect(function(Player)
-		Player.Chatted:Connect(function(Message)
-			if string.lower(Message) == '!getlossdata' then
-				RS.SendData:FireClient(Player,LossData)
-			elseif string.lower(Message) == '!getrewarddata' then
-				RS.SendData:FireClient(Player,RewData)
-			end
-		end)
+game.Players.PlayerAdded:Connect(function(Player)
+	Player.Chatted:Connect(function(Message)
+		if string.lower(Message) == '!getlossdata' then
+			RS.SendData:FireClient(Player,LossData)
+		elseif string.lower(Message) == '!getrewarddata' then
+			RS.SendData:FireClient(Player,RewData)
+		end
 	end)
+end)
 
-	local function UpdateTargetNetwork()
-		NeuralNetworkData['TNetwork'] = nil
-		
-		NeuralNetworkFramework.CreateNN('TNetwork',lr,NumInputs,NumHiddenNodes,NumHiddenLayers,NumOutputs,WeightMin,WeightMax,HiddenLayerActivationFunction,OutputLayerActivationFunction,Optimizer,{Momentum=0.99})
-		
-		for i = 1,NeuralNetworkData.QNetwork.NumLayers do
-			local Layer = 'Layer'..tostring(i)
-			local LayerData = NeuralNetworkData.QNetwork[Layer]
-			
-			for j,v in pairs(LayerData.Nodes) do
-				NeuralNetworkData.TNetwork[Layer].Nodes[j].Bias = v.Bias
-				
-				if i ~= NeuralNetworkData.QNetwork.NumLayers then
-					for k,v2 in pairs(v.Connections) do
-						local ConnectionData = NeuralNetworkData.TNetwork[Layer].Nodes[j].Connections[k]
-						
-						ConnectionData.Weight = v2.Weight
-						ConnectionData.ConnectedLayer = v2.ConnectedLayer
-						ConnectionData.ConnectedNode = v2.ConnectedNode
-						-- TargetNetwork --> Layer 1 --> Nodes --> Node j --> Connections --> Connection k
-					end
-				end
-			end
-		end
-	end
-
-	local function CreateNetworks()
-		NeuralNetworkFramework.CreateNN('QNetwork',lr,NumInputs,NumHiddenNodes,NumHiddenLayers,NumOutputs,WeightMin,WeightMax,HiddenLayerActivationFunction,OutputLayerActivationFunction,Optimizer,{Momentum=0.99})
-		NeuralNetworkFramework.ClipGradients('QNetwork',-1,1)
-		
-		UpdateTargetNetwork()
-		
-		Epsilon = 1
-		Round = 1
-		LossData = {Loss = {}}
-		RewData = {AvgReward = {}} -- Will eventually look like RewData = {Reward = {1,2,3,4,2,5,2,7,...}} and LossData = {Loss = {1,25,2,3,1,0.5,0.8,0.3,...}}
-	end
-
-	local function Save()
-		local DataToSave = {Epsilon = Epsilon,Round = Round,LossData = LossData,RewData = RewData,QNetwork = NeuralNetworkData.QNetwork,TNetwork = NeuralNetworkData.TNetwork}
-		
-		local Success,Err = pcall(function()
-			NeuralNetworkStore:SetAsync('joe1234',DataToSave)
-		end)
-		
-		if not Success then
-			warn(Err)
-		end
-	end
-
-	local Success,Err = pcall(function()
-		Data = NeuralNetworkStore:GetAsync('joe1234')
-	end)
-
-	if not Success then
-		warn(Err)
-		CreateNetworks()
-	else
-		NeuralNetworkData.QNetwork = Data.QNetwork
-		NeuralNetworkData.TNetwork = Data.TNetwork
-		Epsilon = Data.Epsilon
-		Round = Data.Round
-		LossData = Data.LossData
-		RewData = Data.RewData
-	end
-
-	if Data == nil then
-		CreateNetworks()
-	end
-
-	local function AddApple()
-		local Apple = SS.Apple:Clone()
-		local PossiblePositions = {}
-		local SnakePositions = {}
-		
-		for i = 1,Score + 1 do
-			table.insert(SnakePositions,workspace.Snake[tostring(i)].Position)
-		end
-		
-		table.insert(SnakePositions,workspace.Snake.SnakeHead.Position)
-		
-		for i = 0,22.5 - 5.5 do
-			local x = 5.5 + i
-			
-			for j = -47.5 - -29.5,0 do
-				local z = -47.5 - j
-				
-				local P = Vector3.new(x,0.5,z)
-				
-				if table.find(SnakePositions,P) ~= nil then
-					continue
-				end
-				
-				table.insert(PossiblePositions,P)
-			end
-		end
-		
-		local ChosenPos = PossiblePositions[math.random(1,#PossiblePositions)]
-
-		Apple.Position = ChosenPos
-		Apple.Parent = workspace
-	end
-
-	local function StartGame()
-		local SnakeHead = SS.SnakeHead:Clone()
-		local SnakeTail = SS.SnakeTail:Clone()
-		
-		local X = math.round(Rand:NextNumber(5.5,22.5) - 0.5) + 0.5
-		local Y = 0.5
-		local Z = math.round(Rand:NextNumber(-47.5,-29.5) - 0.5) + 0.5
-		
-		SnakeHead.CFrame = CFrame.new(X,Y,Z) * CFrame.Angles(0,math.rad(90),0)--workspace.Spawn.CFrame
-		SnakeHead.Parent = workspace.Snake
-		
-		SnakeTail.CFrame = SnakeHead.CFrame - SnakeHead.CFrame.LookVector
-		SnakeTail.Name = '1'
-		SnakeTail.Parent = workspace.Snake
-	end
-
-	local Reward = 0
-
-	local function AddTail()
-		local SnakeTail = SS.SnakeTail:Clone()
-
-		SnakeTail.CFrame = workspace.Snake[tostring(Score + 1)].CFrame - workspace.Snake[tostring(Score + 1)].CFrame.LookVector
-		Score += 1
-		Reward = 10
-		SnakeTail.Name = tostring(Score + 1)
-		SnakeTail.Parent = workspace.Snake
-	end
-
-	StartGame()
-
-	local function MoveSnake()
-		local OldPositions = {}
-		
-		for i = 1,Score + 1 do
-			local v = workspace.Snake[tostring(i)]
-			
-			table.insert(OldPositions,v.Position)
-		end
-		
-		local NewPositions = {}
-		
-		for i = 1,Score + 1 do
-			local v = workspace.Snake[tostring(i)]
-			
-			if i == 1 then
-				table.insert(NewPositions,workspace.Snake.SnakeHead.CFrame)
-			else
-				table.insert(NewPositions,workspace.Snake[tostring(i - 1)].CFrame)
-			end
-		end
-		
-		for i = 1,Score + 1 do
-			local v = workspace.Snake[tostring(i)]
-			
-			v.CFrame = NewPositions[i]
-		end
-		
-		workspace.Snake.SnakeHead.CFrame += workspace.Snake.SnakeHead.CFrame.LookVector
-		
-		local List = workspace.Snake.SnakeHead:GetTouchingParts()
-		
-		for i,v in pairs(List) do
-			if v.Parent == workspace.Snake or v.Name == 'Border' then
-				Alive = false
-				workspace.Snake.SnakeHead.CFrame -= workspace.Snake.SnakeHead.CFrame.LookVector
-				
-				for i = 1,Score + 1 do
-					local v = workspace.Snake[tostring(i)]
-					
-					v.Position = OldPositions[i]
-				end
-				
-				Reward = -100 --Crashed
-				break
-			elseif v.Name == 'Apple' then
-				AddTail()
-				v:Destroy()
-				
-				AddApple()
-				break
-			end
-		end
-	end
-
-	local function UpArrow()
-		if workspace.Snake.SnakeHead.Orientation ~= Vector3.new(0,0,0) then
-			workspace.Snake.SnakeHead.Orientation = Vector3.new(0,180,0)
-		end
-	end
-
-	local function LeftArrow()
-		if workspace.Snake.SnakeHead.Orientation ~= Vector3.new(0,90,0) then
-			workspace.Snake.SnakeHead.Orientation = Vector3.new(0,-90,0)
-		end
-	end
-
-	local function RightArrow()
-		if workspace.Snake.SnakeHead.Orientation ~= Vector3.new(0,-90,0) then
-			workspace.Snake.SnakeHead.Orientation = Vector3.new(0,90,0)
-		end
-	end
-
-	local function DownArrow()
-		if workspace.Snake.SnakeHead.Orientation ~= Vector3.new(0,-180,0) then
-			workspace.Snake.SnakeHead.Orientation = Vector3.new(0,0,0)
-		end
-	end
-
-	local function CalculateInputs()
-		local Head = workspace.Snake.SnakeHead
-		local Apple = workspace.Apple
-		local Return = {}
-		
-		if Apple.Position.Z > Head.Position.Z then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		if Apple.Position.Z < Head.Position.Z then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		if Apple.Position.X > Head.Position.X then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		if Apple.Position.X < Head.Position.X then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		local Params = RaycastParams.new()
-		
-		Params.FilterDescendantsInstances = {Apple,workspace.Spawn}
-		Params.FilterType = Enum.RaycastFilterType.Blacklist
-		
-		local RayOrigin = Head.Position
-		local RayDirection = Head.Position + Head.CFrame.LookVector - Head.Position
-		
-		local Result = workspace:Raycast(RayOrigin,RayDirection,Params)
-		
-		if Result ~= nil then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		RayDirection = Head.Position + Head.CFrame.RightVector * -1 - Head.Position
-		
-		Result = workspace:Raycast(RayOrigin,RayDirection,Params)
-		
-		if Result ~= nil then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		RayDirection = Head.Position + Head.CFrame.RightVector - Head.Position
-		
-		Result = workspace:Raycast(RayOrigin,RayDirection,Params)
-		
-		if Result ~= nil then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		if Head.Orientation == Vector3.new(0,180,0) then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		if Head.Orientation == Vector3.new(0,0,0) then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		if Head.Orientation == Vector3.new(0,-90,0) then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		if Head.Orientation == Vector3.new(0,90,0) then
-			table.insert(Return,1)
-		else
-			table.insert(Return,0)
-		end
-		
-		return Return
-	end
-
-	AddApple()
-
-	local function Shuffle(t)
-		local j, temp
-
-		for i = #t, 1, -1 do
-			j = math.random(i)
-			temp = t[i]
-			t[i] = t[j]
-			t[j] = temp
-		end
-
-		return t
-	end
-
-	local ExperienceReplayTable = {} --{State_s,Action_a,Reward,Next_s}
-	local PrevState
-	local PrevAction
-	local PrevReward
-
-	local function FillExperienceReplayTable(AmtWait,Debug,Optional)
-		PrevState = nil
-		PrevAction = nil
-		PrevReward = nil
-		
-		local EpData = {}
-		
-		while Alive do
-			if AmtWait > 0 then
-				task.wait(AmtWait)
-			end
-
-			Reward = 0
-
-			local Action
-			local Inputs = CalculateInputs()
-
-			local Probability = Rand:NextNumber()
-
-			if Probability <= Epsilon then
-				Action = math.random(1,4)
-			else
-				Action = math.random(1,4)
-				
-				local OutputQValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',Inputs)
-
-				for i,v in pairs(OutputQValues) do
-					if v > OutputQValues[Action] then
-						Action = i
-					end
-
-					if math.abs(v) > 1000 then
-						warn('smth wrong')
-						warn(OutputQValues)
-					end
-				end
-
-				if Debug then
-					warn('Chosen Action: '..Action)
-				end
-			end
-
-			PrevState = Inputs
-			PrevAction = Action
-
-			local OldDist = (workspace.Snake.SnakeHead.Position - workspace.Apple.Position).Magnitude
-
-			if Action == 1 then
-				UpArrow()
-			elseif Action == 2 then
-				DownArrow()
-			elseif Action == 3 then
-				RightArrow()
-			else
-				LeftArrow()
-			end
-
-			MoveSnake()
-
-			if Reward == 0 then
-				local NewDist = (workspace.Snake.SnakeHead.Position - workspace.Apple.Position).Magnitude
-
-				if NewDist > OldDist then
-					Reward = -1
-				else
-					Reward = 1
-				end
-			end
-
-			PrevReward = Reward
-			
-			if Alive then
-				if Optional then
-					table.insert(EpData,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,Next_s = CalculateInputs(),TerminalState = false})
-				else
-					table.insert(ExperienceReplayTable,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,Next_s = CalculateInputs(),TerminalState = false})
-				end
-			else
-				if Optional then
-					table.insert(EpData,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,TerminalState = true})
-				else
-					table.insert(ExperienceReplayTable,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,Next_s = CalculateInputs(),TerminalState = false})
-				end
-			end
-		end
-		
-		if Optional then
-			Shuffle(EpData)
-			
-			table.insert(ExperienceReplayTable,EpData)
-		end
-
-		for i,v in pairs(workspace.Snake:GetChildren()) do
-			v:Destroy()
-		end
-
-		StartGame()
-		Score = 0
-		workspace.Apple:Destroy()
-		AddApple()
-
-		Round += 1
-		Alive = true
-	end
-
-	--[[task.wait(5)
-	FillExperienceReplayTable(0.1,false,false)
-
-	print(ExperienceReplayTable)
-
-	task.wait(5)
-
-	local Count = 0
-	local Clock = os.clock()
-	local i = 1
-
-	for a,b in pairs(ExperienceReplayTable) do
-		print('Episode : '..a)
-		print(b)
-		local Loss = 0
-		local AvgReward = 0
-
-		for k,v in pairs(b) do
-			local State = v.Cur_s
-			local ActionTaken = v.Cur_a
-			local Rew = v.Reward
-			local Terminal = v.TerminalState
-			local NextState
-			local Q_Target
-			
-			print(State)
-			print(ActionTaken)
-			print(Rew)
-			print(Terminal)
-
-			if not Terminal then
-				NextState = v.Next_s
-				print(NextState)
-
-				local TargetQValues = NeuralNetworkFramework.CalculateForwardPass('TNetwork',NextState)
-				local QValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',NextState)
-				local HighestIndex = math.random(1,#QValues)
-				
-				local Check = false
-
-				for j,v2 in pairs(QValues) do
-					if v2 > QValues[HighestIndex] then
-						HighestIndex = j
-					end
-					
-					if v2 ~= TargetQValues[j] then
-						print('Found difference between TNetwork and QNetwork!')
-					end
-				end
-				
-				print(TargetQValues)
-				print(QValues)
-				print(HighestIndex)
-
-				Q_Target = Rew + Gamma * TargetQValues[HighestIndex]
-			else
-				Q_Target = Rew
-			end
-
-			local Outputs = NeuralNetworkFramework.CalculateForwardPass('QNetwork',State)
-			local TargetValues = {}
-
-			for j,v2 in pairs(Outputs) do
-				if j ~= ActionTaken then
-					table.insert(TargetValues,v2)
-				else
-					table.insert(TargetValues,Q_Target)
-				end
-			end
-			
-			local Error = NeuralNetworkFramework.Backpropagate('QNetwork',Outputs,TargetValues,'MeanSquaredError')
-			
-			Loss += Error
-			AvgReward += Rew
-
-			Count += 1
-
-			if Count == CopyWeightsEvery then
-				UpdateTargetNetwork()
-				Count = 0
-			end
-
-			if i % 100 == 0 then
-				task.wait()
-			end
-
-			i += 1
-		end
-
-		Loss /= #b
-		AvgReward /= #b
-
-		table.insert(LossData.Loss,Loss)
-		table.insert(RewData.AvgReward,AvgReward)
-		break
-	end
-
-	print('Done!')--]]
-
-	local function Episode(AmtWait,Debug)
-		PrevState = nil
-		PrevAction = nil
-		PrevReward = nil
-		
-		local AvgReward = 0
-		local NumIterations = 0
-		local Loss = 0
-		
-		while Alive do
-			if AmtWait > 0 then
-				task.wait(AmtWait)
-			end
-
-			Reward = 0
-
-			local Action
-			local Inputs = CalculateInputs()
-
-			local Probability = Rand:NextNumber()
-
-			if Probability <= Epsilon then
-				Action = math.random(1,4)
-			else
-				Action = math.random(1,4)
-				
-				local OutputQValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',Inputs)
-
-				if Debug then print(table.concat(OutputQValues,', ')) end
-
-				for i,v in pairs(OutputQValues) do
-					if v > OutputQValues[Action] then
-						Action = i
-					end
-
-					if math.abs(v) > 1000 then
-						warn('smth wrong')
-						warn(OutputQValues)
-					end
-				end
-			end
-
-			PrevState = Inputs
-			PrevAction = Action
-			
-			local OldDist = (workspace.Snake.SnakeHead.Position - workspace.Apple.Position).Magnitude
-			
-			if Action == 1 then
-				UpArrow()
-			elseif Action == 2 then
-				DownArrow()
-			elseif Action == 3 then
-				RightArrow()
-			else
-				LeftArrow()
-			end
-
-			MoveSnake()
-			
-			if Reward == 0 then
-				local NewDist = (workspace.Snake.SnakeHead.Position - workspace.Apple.Position).Magnitude
-				
-				if NewDist > OldDist then
-					Reward = -1
-				else
-					Reward = 1
-				end
-			end
-
-			PrevReward = Reward
-			
-			if Alive then
-				table.insert(ExperienceReplayTable,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,Next_s = CalculateInputs(),TerminalState = false})
-			else
-				table.insert(ExperienceReplayTable,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,TerminalState = true})
-			end
-			
-			if #ExperienceReplayTable > MaxMemorySize then
-				table.remove(ExperienceReplayTable,1)
-			end
-			
-			AvgReward += Reward
-			NumIterations += 1
-		end
-		
-		for k = 1,1 do
-			local Batch = {}
-			local Count = 0
-			local Clock = os.clock()
-			
-			for i = 1,BatchSize do
-				table.insert(Batch,ExperienceReplayTable[math.random(#ExperienceReplayTable)])
-			end
-			
-			Shuffle(Batch)
-			
-			for i,v in pairs(Batch) do
-				local State = v.Cur_s
-				local ActionTaken = v.Cur_a
-				local Rew = v.Reward
-				local Terminal = v.TerminalState
-				local NextState
-				local Q_Target
-
-				if not Terminal then
-					NextState = v.Next_s
-
-					local TargetQValues = NeuralNetworkFramework.CalculateForwardPass('TNetwork',NextState)
-					local QValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',NextState)
-					local HighestIndex = math.random(1,#QValues)
-
-					for j,v2 in pairs(QValues) do
-						if v2 > QValues[HighestIndex] then
-							HighestIndex = j
-						end
-					end
-
-					Q_Target = Rew + Gamma * TargetQValues[HighestIndex]
-				else
-					Q_Target = Rew
-				end
-				
-				local Outputs = NeuralNetworkFramework.CalculateForwardPass('QNetwork',State)
-				local TargetValues = {}
-
-				for j,v2 in pairs(Outputs) do
-					if j ~= ActionTaken then
-						table.insert(TargetValues,v2)
-					else
-						table.insert(TargetValues,Q_Target)
-					end
-				end
-				
-				if State[5] == 1 then
-					--[[print(Outputs)
-					print(ActionTaken)
-					print(TargetValues)==]]
-				end
-				
-				local Error = NeuralNetworkFramework.Backpropagate('QNetwork',Outputs,TargetValues,'MeanSquaredError')
-				
-				Loss += Error
-				
-				Count += 1
-
-				if Count == CopyWeightsEvery then
-					UpdateTargetNetwork()
-				end
-
-				if Clock - os.clock() >= 0.1 then
-					task.wait()
-					Clock = os.clock()
-				end
-			end
-		end
-		
-		AvgReward /= NumIterations
-		Loss /= BatchSize
-
-		for i,v in pairs(workspace.Snake:GetChildren()) do
-			v:Destroy()
-		end
-
-		StartGame()
-		Score = 0
-		workspace.Apple:Destroy()
-		AddApple()
-
-		Round += 1
-		Alive = true
-
-		if Epsilon > 0.05 then
-			Epsilon *= Epsilon_Decay
-		end
-		
-		table.insert(RewData.AvgReward,AvgReward)
-		table.insert(LossData.Loss,Loss)
-	end
-
-	local c = os.clock()
-
-	--[[local NumDataCollectingEpisodes = 10000
-
-	for i = 1,NumDataCollectingEpisodes do
-		FillExperienceReplayTable(0,false,false)
-		
-		if os.clock() - c >= 0.01 then
-			task.wait()
-			c = os.clock()
-			print(math.round(i / NumDataCollectingEpisodes * 100)..'%')
-		end
-	end--]]
-
-	--[[print('Going to peform gradient descent in 5 seconds!')
-
-	task.wait(5)
-
-	print('Start!')
-
-	task.wait()
-
-	local Count = 0
-	local Clock = os.clock()
-	local i = 1
-
-	for a,b in pairs(ExperienceReplayTable) do
-		local Loss = 0
-		local AvgReward = 0
-		
-		for k,v in pairs(b) do
-			local State = v.Cur_s
-			local ActionTaken = v.Cur_a
-			local Rew = v.Reward
-			local Terminal = v.TerminalState
-			local NextState
-			local Q_Target
-
-			if not Terminal then
-				NextState = v.Next_s
-
-				local TargetQValues = NeuralNetworkFramework.CalculateForwardPass('TNetwork',NextState)
-				local QValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',NextState)
-				local HighestIndex = math.random(1,#QValues)
-
-				for j,v2 in pairs(QValues) do
-					if v2 > QValues[HighestIndex] then
-						HighestIndex = j
-					end
-				end
-
-				Q_Target = Rew + Gamma * TargetQValues[HighestIndex]
-			else
-				Q_Target = Rew
-			end
-
-			local Outputs = NeuralNetworkFramework.CalculateForwardPass('QNetwork',State)
-			local TargetValues = {}
-
-			for j,v2 in pairs(Outputs) do
-				if j ~= ActionTaken then
-					table.insert(TargetValues,v2)
-				else
-					table.insert(TargetValues,Q_Target)
-				end
-			end
-
-			local Error = NeuralNetworkFramework.Backpropagate('QNetwork',Outputs,TargetValues,'MeanSquaredError')
-			
-			Loss += Error
-			AvgReward += Rew
-			
-			Count += 1
-
-			if Count == CopyWeightsEvery then
-				UpdateTargetNetwork()
-				Count = 0
-			end
-			
-			if i % 100 == 0 then
-				task.wait()
-			end
-			
-			i += 1
-		end
-		
-		Loss /= #b
-		AvgReward /= #b
-		
-		table.insert(LossData.Loss,Loss)
-		table.insert(RewData.AvgReward,AvgReward)
-	end
-
-	print('Done!')
-
-	ExperienceReplayTable = {}
-
-	Epsilon = 0--]]
-
-	--Episode(0.1,true)
-
-	c = os.clock()
-
-	repeat
-		print('Round: '..Round)
-		print('Epsilon: '..Epsilon)
-		
-		Episode(0,false)
-		
-		if os.clock() - c >= 0.1 then
-			task.wait()
-			c = os.clock()
-			print(math.round((Round / 2000) * 100)..'% done')
-			--print(math.round(math.clamp((0.05 / Epsilon),0,1) * 100)..'% done')
-		end
-	until Round == 2000--Epsilon <= 0.05
+local function UpdateTargetNetwork()
+	NeuralNetworkData['TNetwork'] = nil
 	
-	--Episode(0.1,true)
-
-	while true do
-		print('Round: '..Round)
-		print('Epsilon: '..Epsilon)
-
-		Episode(0.001,false)
-	end
-
-	for i,v in pairs(RewData.AvgReward) do
-		if v > 2 then
-			return true
+	NeuralNetworkFramework.CreateNN('TNetwork',lr,NumInputs,NumHiddenNodes,NumHiddenLayers,NumOutputs,WeightMin,WeightMax,HiddenLayerActivationFunction,OutputLayerActivationFunction,Optimizer,{Momentum=0.99})
+	
+	for i = 1,NeuralNetworkData.QNetwork.NumLayers do
+		local Layer = 'Layer'..tostring(i)
+		local LayerData = NeuralNetworkData.QNetwork[Layer]
+		
+		for j,v in pairs(LayerData.Nodes) do
+			NeuralNetworkData.TNetwork[Layer].Nodes[j].Bias = v.Bias
+			
+			if i ~= NeuralNetworkData.QNetwork.NumLayers then
+				for k,v2 in pairs(v.Connections) do
+					local ConnectionData = NeuralNetworkData.TNetwork[Layer].Nodes[j].Connections[k]
+					
+					ConnectionData.Weight = v2.Weight
+					ConnectionData.ConnectedLayer = v2.ConnectedLayer
+					ConnectionData.ConnectedNode = v2.ConnectedNode
+					-- TargetNetwork --> Layer 1 --> Nodes --> Node j --> Connections --> Connection k
+				end
+			end
 		end
 	end
-
-	return false
 end
 
-TestParameters()
-
---[[local Return = false
-
-repeat
-	NeuralNetworkData['QNetwork'] = nil
-	NeuralNetworkData['TNetwork'] = nil
-	RewData = {AvgReward = {}}
-	LossData = {Loss = {}}
-	Epsilon = 1
-	Epsilon_Decay = Rand:NextNumber(0.9,0.999)
-	CopyWeightsEvery = math.random(8,32)
-	Gamma = Rand:NextNumber(0.9,0.9999)
-	BatchSize = math.random(16,64)
-	lr = Rand:NextNumber(0.001,0.1)
-	local Activation = math.random(1,3)
+local function CreateNetworks()
+	NeuralNetworkFramework.CreateNN('QNetwork',lr,NumInputs,NumHiddenNodes,NumHiddenLayers,NumOutputs,WeightMin,WeightMax,HiddenLayerActivationFunction,OutputLayerActivationFunction,Optimizer,{Momentum=0.99})
+	NeuralNetworkFramework.ClipGradients('QNetwork',-1,1)
 	
-	if Activation == 1 then
-		HiddenLayerActivationFunction = 'LeakyReLU'
-	elseif Activation == 2 then
-		HiddenLayerActivationFunction = 'ReLU'
-	else
-		HiddenLayerActivationFunction = 'TanH'
+	UpdateTargetNetwork()
+	
+	Epsilon = 1--0.05
+	Round = 1
+	LossData = {Loss = {}}
+	RewData = {AvgReward = {}} -- Will eventually look like RewData = {Reward = {1,2,3,4,2,5,2,7,...}} and LossData = {Loss = {1,25,2,3,1,0.5,0.8,0.3,...}}
+end
+
+local function Save()
+	local DataToSave = {Epsilon = Epsilon,Round = Round,LossData = LossData,RewData = RewData,QNetwork = NeuralNetworkData.QNetwork,TNetwork = NeuralNetworkData.TNetwork}
+	
+	local Success,Err = pcall(function()
+		NeuralNetworkStore:SetAsync('joe1234',DataToSave)
+	end)
+	
+	if not Success then
+		warn(Err)
+	end
+end
+
+local Success,Err = pcall(function()
+	Data = NeuralNetworkStore:GetAsync('joe1234')
+end)
+
+if not Success then
+	warn(Err)
+	CreateNetworks()
+else
+	NeuralNetworkData.QNetwork = Data.QNetwork
+	NeuralNetworkData.TNetwork = Data.TNetwork
+	Epsilon = Data.Epsilon
+	Round = Data.Round
+	LossData = Data.LossData
+	RewData = Data.RewData
+end
+
+if Data == nil then
+	CreateNetworks()
+end
+
+local function AddApple()
+	local Apple = SS.Apple:Clone()
+	local PossiblePositions = {}
+	local SnakePositions = {}
+	
+	for i = 1,Score + 1 do
+		table.insert(SnakePositions,workspace.Snake[tostring(i)].Position)
 	end
 	
-	local Z = Rand:NextNumber(0,2)
-	WeightMin = -Z
-	WeightMax = Z
+	table.insert(SnakePositions,workspace.Snake.SnakeHead.Position)
 	
-	warn('Epsilon_decay = '..Epsilon_Decay)
-	warn('Target network update frequency = '..CopyWeightsEvery)
-	warn('Gamma = '..Gamma)
-	warn('Batch Size = '..BatchSize)
-	warn('Learning rate = '..lr)
-	warn('HiddenLayerActivationFunction = '..HiddenLayerActivationFunction)
-	warn('Minnimum weight value = '..WeightMin)
-	warn('Maximum weight value = '..WeightMax)
+	for i = 0,22.5 - 5.5 do
+		local x = 5.5 + i
+		
+		for j = -47.5 - -29.5,0 do
+			local z = -47.5 - j
+			
+			local P = Vector3.new(x,0.5,z)
+			
+			if table.find(SnakePositions,P) ~= nil then
+				continue
+			end
+			
+			table.insert(PossiblePositions,P)
+		end
+	end
 	
-	Return = TestParameters()
+	local ChosenPos = PossiblePositions[math.random(1,#PossiblePositions)]
+
+	Apple.Position = ChosenPos
+	Apple.Parent = workspace
+end
+
+local function StartGame()
+	local SnakeHead = SS.SnakeHead:Clone()
+	local SnakeTail = SS.SnakeTail:Clone()
 	
-	workspace.Apple:Destroy()
+	local X = math.round(Rand:NextNumber(5.5,22.5) - 0.5) + 0.5
+	local Y = 0.5
+	local Z = math.round(Rand:NextNumber(-47.5,-29.5) - 0.5) + 0.5
 	
+	SnakeHead.CFrame = CFrame.new(X,Y,Z) * CFrame.Angles(0,math.rad(90),0)--workspace.Spawn.CFrame
+	SnakeHead.Parent = workspace.Snake
+	
+	SnakeTail.CFrame = SnakeHead.CFrame - SnakeHead.CFrame.LookVector
+	SnakeTail.Name = '1'
+	SnakeTail.Parent = workspace.Snake
+end
+
+local Reward = 0
+
+local function AddTail()
+	local SnakeTail = SS.SnakeTail:Clone()
+
+	SnakeTail.CFrame = workspace.Snake[tostring(Score + 1)].CFrame - workspace.Snake[tostring(Score + 1)].CFrame.LookVector
+	Score += 1
+	Reward = 10
+	SnakeTail.Name = tostring(Score + 1)
+	SnakeTail.Parent = workspace.Snake
+end
+
+StartGame()
+
+local function MoveSnake()
+	local OldPositions = {}
+	
+	for i = 1,Score + 1 do
+		local v = workspace.Snake[tostring(i)]
+		
+		table.insert(OldPositions,v.Position)
+	end
+	
+	local NewPositions = {}
+	
+	for i = 1,Score + 1 do
+		local v = workspace.Snake[tostring(i)]
+		
+		if i == 1 then
+			table.insert(NewPositions,workspace.Snake.SnakeHead.CFrame)
+		else
+			table.insert(NewPositions,workspace.Snake[tostring(i - 1)].CFrame)
+		end
+	end
+	
+	for i = 1,Score + 1 do
+		local v = workspace.Snake[tostring(i)]
+		
+		v.CFrame = NewPositions[i]
+	end
+	
+	workspace.Snake.SnakeHead.CFrame += workspace.Snake.SnakeHead.CFrame.LookVector
+	
+	local List = workspace.Snake.SnakeHead:GetTouchingParts()
+	
+	for i,v in pairs(List) do
+		if v.Parent == workspace.Snake or v.Name == 'Border' then
+			Alive = false
+			workspace.Snake.SnakeHead.CFrame -= workspace.Snake.SnakeHead.CFrame.LookVector
+			
+			for i = 1,Score + 1 do
+				local v = workspace.Snake[tostring(i)]
+				
+				v.Position = OldPositions[i]
+			end
+			
+			Reward = -10 --Crashed
+			break
+		elseif v.Name == 'Apple' then
+			AddTail()
+			v:Destroy()
+			
+			AddApple()
+			break
+		end
+	end
+end
+
+local function UpArrow()
+	if workspace.Snake.SnakeHead.Orientation ~= Vector3.new(0,0,0) then
+		workspace.Snake.SnakeHead.Orientation = Vector3.new(0,180,0)
+	end
+end
+
+local function LeftArrow()
+	if workspace.Snake.SnakeHead.Orientation ~= Vector3.new(0,90,0) then
+		workspace.Snake.SnakeHead.Orientation = Vector3.new(0,-90,0)
+	end
+end
+
+local function RightArrow()
+	if workspace.Snake.SnakeHead.Orientation ~= Vector3.new(0,-90,0) then
+		workspace.Snake.SnakeHead.Orientation = Vector3.new(0,90,0)
+	end
+end
+
+local function DownArrow()
+	if workspace.Snake.SnakeHead.Orientation ~= Vector3.new(0,-180,0) then
+		workspace.Snake.SnakeHead.Orientation = Vector3.new(0,0,0)
+	end
+end
+
+local function CalculateInputs()
+	local Head = workspace.Snake.SnakeHead
+	local Apple = workspace.Apple
+	local Return = {}
+
+	if Apple.Position.Z > Head.Position.Z then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	if Apple.Position.Z < Head.Position.Z then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	if Apple.Position.X > Head.Position.X then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	if Apple.Position.X < Head.Position.X then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	local Params = RaycastParams.new()
+
+	Params.FilterDescendantsInstances = {Apple,workspace.Spawn}
+	Params.FilterType = Enum.RaycastFilterType.Blacklist
+
+	local RayOrigin = Head.Position
+	local RayDirection = Head.Position + Head.CFrame.LookVector - Head.Position
+
+	local Result = workspace:Raycast(RayOrigin,RayDirection,Params)
+
+	if Result ~= nil then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	RayDirection = Head.Position + Head.CFrame.RightVector * -1 - Head.Position
+
+	Result = workspace:Raycast(RayOrigin,RayDirection,Params)
+
+	if Result ~= nil then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	RayDirection = Head.Position + Head.CFrame.RightVector - Head.Position
+
+	Result = workspace:Raycast(RayOrigin,RayDirection,Params)
+
+	if Result ~= nil then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	if Head.Orientation == Vector3.new(0,-180,0) then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	if Head.Orientation == Vector3.new(0,0,0) then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	if Head.Orientation == Vector3.new(0,-90,0) then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	if Head.Orientation == Vector3.new(0,90,0) then
+		table.insert(Return,1)
+	else
+		table.insert(Return,0)
+	end
+
+	return Return
+end
+
+AddApple()
+
+local function Shuffle(t)
+	local j, temp
+
+	for i = #t, 1, -1 do
+		j = math.random(i)
+		temp = t[i]
+		t[i] = t[j]
+		t[j] = temp
+	end
+
+	return t
+end
+
+local ExperienceReplayTable = {} --{State_s,Action_a,Reward,Next_s}
+local PrevState
+local PrevAction
+local PrevReward
+
+local function FillExperienceReplayTable(AmtWait,Debug)
+	PrevState = nil
+	PrevAction = nil
+	PrevReward = nil
+	
+	local EpData = {}
+	
+	repeat
+		if AmtWait > 0 then
+			task.wait(AmtWait)
+		end
+
+		Reward = 0
+
+		local Action
+		local Inputs = CalculateInputs()
+
+		local Probability = Rand:NextNumber()
+
+		if Probability <= Epsilon then
+			Action = math.random(1,4)
+		else
+			Action = math.random(1,4)
+			
+			local OutputQValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',Inputs)
+
+			for i,v in pairs(OutputQValues) do
+				if v > OutputQValues[Action] then
+					Action = i
+				end
+
+				if math.abs(v) > 1000 then
+					warn('smth wrong')
+					warn(OutputQValues)
+				end
+			end
+
+			if Debug then
+				warn('Chosen Action: '..Action)
+			end
+		end
+
+		PrevState = Inputs
+		PrevAction = Action
+
+		local OldDist = (workspace.Snake.SnakeHead.Position - workspace.Apple.Position).Magnitude
+
+		if Action == 1 then
+			UpArrow()
+		elseif Action == 2 then
+			DownArrow()
+		elseif Action == 3 then
+			RightArrow()
+		else
+			LeftArrow()
+		end
+
+		MoveSnake()
+
+		if Reward == 0 then
+			local NewDist = (workspace.Snake.SnakeHead.Position - workspace.Apple.Position).Magnitude
+
+			if NewDist > OldDist then
+				Reward = 1
+			else
+				Reward = -1
+			end
+		end
+
+		PrevReward = Reward
+		
+		if Alive then
+			table.insert(ExperienceReplayTable,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,Next_s = CalculateInputs(),TerminalState = false})
+		else
+			table.insert(ExperienceReplayTable,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,Next_s = CalculateInputs(),TerminalState = false})
+		end
+	until not Alive
+
 	for i,v in pairs(workspace.Snake:GetChildren()) do
 		v:Destroy()
 	end
-	
-	Score = 0
-	Round = 0
-until Return == true
 
-warn('Found good parameters!')--]]
+	StartGame()
+	Score = 0
+	workspace.Apple:Destroy()
+	AddApple()
+
+	Round += 1
+	Alive = true
+end
+
+--[[task.wait(5)
+FillExperienceReplayTable(0.1,false)
+
+print(ExperienceReplayTable)
+
+task.wait(5)
+
+local Count = 0
+local Clock = os.clock()
+local i = 1
+
+for a,b in pairs(ExperienceReplayTable) do
+	print('Episode : '..a)
+	print(b)
+	local Loss = 0
+	local AvgReward = 0
+
+	for k,v in pairs(b) do
+		local State = v.Cur_s
+		local ActionTaken = v.Cur_a
+		local Rew = v.Reward
+		local Terminal = v.TerminalState
+		local NextState
+		local Q_Target
+		
+		print(State)
+		print(ActionTaken)
+		print(Rew)
+		print(Terminal)
+
+		if not Terminal then
+			NextState = v.Next_s
+			print(NextState)
+
+			local TargetQValues = NeuralNetworkFramework.CalculateForwardPass('TNetwork',NextState)
+			local QValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',NextState)
+			local HighestIndex = math.random(1,#QValues)
+			
+			local Check = false
+
+			for j,v2 in pairs(QValues) do
+				if v2 > QValues[HighestIndex] then
+					HighestIndex = j
+				end
+				
+				if v2 ~= TargetQValues[j] then
+					print('Found difference between TNetwork and QNetwork!')
+				end
+			end
+			
+			print(TargetQValues)
+			print(QValues)
+			print(HighestIndex)
+
+			Q_Target = Rew + Gamma * TargetQValues[HighestIndex]
+		else
+			Q_Target = Rew
+		end
+
+		local Outputs = NeuralNetworkFramework.CalculateForwardPass('QNetwork',State)
+		local TargetValues = {}
+
+		for j,v2 in pairs(Outputs) do
+			if j ~= ActionTaken then
+				table.insert(TargetValues,v2)
+			else
+				table.insert(TargetValues,Q_Target)
+			end
+		end
+		
+		local Error = NeuralNetworkFramework.Backpropagate('QNetwork',Outputs,TargetValues,'MeanSquaredError')
+		
+		Loss += Error
+		AvgReward += Rew
+
+		Count += 1
+
+		if Count == CopyWeightsEvery then
+			UpdateTargetNetwork()
+			Count = 0
+		end
+
+		if i % 100 == 0 then
+			task.wait()
+		end
+
+		i += 1
+	end
+
+	Loss /= #b
+	AvgReward /= #b
+
+	table.insert(LossData.Loss,Loss)
+	table.insert(RewData.AvgReward,AvgReward)
+	break
+end
+
+print('Done!')--]]
+
+local function Episode(AmtWait,Debug)
+	PrevState = nil
+	PrevAction = nil
+	PrevReward = nil
+	
+	local AvgReward = 0
+	local NumIterations = 0
+	local Loss = 0
+	
+	repeat
+		if AmtWait > 0 then
+			task.wait(AmtWait)
+		end
+
+		Reward = 0
+
+		local Action
+		local Inputs = CalculateInputs()
+
+		local Probability = Rand:NextNumber()
+
+		if Probability <= Epsilon then
+			Action = math.random(1,4)
+		else
+			Action = math.random(1,4)
+			
+			local OutputQValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',Inputs)
+
+			if Debug then print(table.concat(OutputQValues,', ')) end
+
+			for i,v in pairs(OutputQValues) do
+				if v > OutputQValues[Action] then
+					Action = i
+				end
+
+				if math.abs(v) > 1000 then
+					warn('smth wrong')
+					warn(OutputQValues)
+				end
+			end
+		end
+
+		PrevState = Inputs
+		PrevAction = Action
+		
+		local OldDist = (workspace.Snake.SnakeHead.Position - workspace.Apple.Position).Magnitude
+		
+		if Action == 1 then
+			UpArrow()
+		elseif Action == 2 then
+			DownArrow()
+		elseif Action == 3 then
+			RightArrow()
+		else
+			LeftArrow()
+		end
+
+		MoveSnake()
+		
+		if Reward == 0 then
+			local NewDist = (workspace.Snake.SnakeHead.Position - workspace.Apple.Position).Magnitude
+			
+			if NewDist > OldDist then
+				Reward = 1
+			else
+				Reward = -1
+			end
+		end
+
+		PrevReward = Reward
+		
+		if Alive then
+			table.insert(ExperienceReplayTable,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,Next_s = CalculateInputs(),TerminalState = false})
+		else
+			table.insert(ExperienceReplayTable,{Cur_s = PrevState,Cur_a = PrevAction,Reward = PrevReward,TerminalState = true})
+		end
+		
+		if #ExperienceReplayTable > MaxMemorySize then
+			table.remove(ExperienceReplayTable,1)
+		end
+		
+		AvgReward += Reward
+		NumIterations += 1
+	until not Alive
+	
+	for k = 1,1 do
+		local Batch = {}
+		local Count = 0
+		local Clock = os.clock()
+		
+		for i = 1,BatchSize do
+			table.insert(Batch,ExperienceReplayTable[math.random(#ExperienceReplayTable)])
+		end
+		
+		Shuffle(Batch)
+		
+		for i,v in pairs(Batch) do
+			local State = v.Cur_s
+			local ActionTaken = v.Cur_a
+			local Rew = v.Reward
+			local Terminal = v.TerminalState
+			local NextState
+			local Q_Target
+
+			if not Terminal then
+				NextState = v.Next_s
+
+				local TargetQValues = NeuralNetworkFramework.CalculateForwardPass('TNetwork',NextState)
+				local QValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',NextState)
+				local HighestIndex = math.random(1,#QValues)
+
+				for j,v2 in pairs(QValues) do
+					if v2 > QValues[HighestIndex] then
+						HighestIndex = j
+					end
+				end
+
+				Q_Target = Rew + Gamma * TargetQValues[HighestIndex]
+			else
+				Q_Target = Rew
+			end
+			
+			local Outputs = NeuralNetworkFramework.CalculateForwardPass('QNetwork',State)
+			local TargetValues = {}
+
+			for j,v2 in pairs(Outputs) do
+				if j ~= ActionTaken then
+					table.insert(TargetValues,v2)
+				else
+					table.insert(TargetValues,Q_Target)
+				end
+			end
+			
+			if State[5] == 1 then
+				--[[print(Outputs)
+				print(ActionTaken)
+				print(TargetValues)==]]
+			end
+			
+			local Error = NeuralNetworkFramework.Backpropagate('QNetwork',Outputs,TargetValues,'MeanSquaredError')
+			
+			Loss += Error
+			
+			Count += 1
+
+			if Count == CopyWeightsEvery then
+				UpdateTargetNetwork()
+			end
+
+			if Clock - os.clock() >= 0.1 then
+				task.wait()
+				Clock = os.clock()
+			end
+		end
+	end
+	
+	AvgReward /= NumIterations
+	Loss /= BatchSize
+
+	for i,v in pairs(workspace.Snake:GetChildren()) do
+		v:Destroy()
+	end
+
+	StartGame()
+	Score = 0
+	workspace.Apple:Destroy()
+	AddApple()
+
+	Round += 1
+	Alive = true
+
+	if Epsilon > 0.05 then
+		Epsilon *= Epsilon_Decay
+	end
+	
+	table.insert(RewData.AvgReward,AvgReward)
+	table.insert(LossData.Loss,Loss)
+end
+
+local c = os.clock()
+
+--[[local NumDataCollectingEpisodes = BatchSize--3200
+
+for i = 1,NumDataCollectingEpisodes do
+	FillExperienceReplayTable(0,false)
+	
+	if os.clock() - c >= 0.01 then
+		task.wait()
+		c = os.clock()
+		print(math.round(i / NumDataCollectingEpisodes * 100)..'%')
+	end
+end--]]
+
+--[[print('Going to peform gradient descent in 5 seconds!')
+
+task.wait(5)
+
+print('Start!')
+
+task.wait()
+
+local Count = 0
+local Clock = os.clock()
+local i = 1
+
+local Loss = 0
+local AvgReward = 0
+
+for h = 1,NumDataCollectingEpisodes do
+	local Batch = {}
+	
+	for j = 1,BatchSize do
+		table.insert(Batch,ExperienceReplayTable[math.random(1,#ExperienceReplayTable)])
+	end
+	
+	Shuffle(Batch)
+	
+	for k,v in pairs(Batch) do
+		local State = v.Cur_s
+		local ActionTaken = v.Cur_a
+		local Rew = v.Reward
+		local Terminal = v.TerminalState
+		local NextState
+		local Q_Target
+
+		if not Terminal then
+			NextState = v.Next_s
+
+			local TargetQValues = NeuralNetworkFramework.CalculateForwardPass('TNetwork',NextState)
+			local QValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',NextState)
+			local HighestIndex = math.random(1,#QValues)
+
+			for j,v2 in pairs(QValues) do
+				if v2 > QValues[HighestIndex] then
+					HighestIndex = j
+				end
+			end
+
+			Q_Target = Rew + Gamma * TargetQValues[HighestIndex]
+		else
+			Q_Target = Rew
+		end
+
+		local Outputs = NeuralNetworkFramework.CalculateForwardPass('QNetwork',State)
+		local TargetValues = {}
+
+		for j,v2 in pairs(Outputs) do
+			if j ~= ActionTaken then
+				table.insert(TargetValues,v2)
+			else
+				table.insert(TargetValues,Q_Target)
+			end
+		end
+
+		local Error = NeuralNetworkFramework.Backpropagate('QNetwork',Outputs,TargetValues,'MeanSquaredError')
+		
+		Loss += Error
+		AvgReward += Rew
+		
+		Count += 1
+
+		if Count == CopyWeightsEvery then
+			UpdateTargetNetwork()
+			Count = 0
+		end
+		
+		if os.clock() - Clock >= 0.1 then
+			print(math.round((h / NumDataCollectingEpisodes) * 100)..'% done')
+			task.wait()
+			Clock = os.clock()
+		end
+		
+		i += 1
+	end
+	
+	Loss /= #Batch
+	AvgReward /= #Batch
+
+	table.insert(LossData.Loss,Loss)
+	table.insert(RewData.AvgReward,AvgReward)
+end
+
+print('Done!')
+
+Epsilon = 0--]]
+
+--Episode(0.1,true)
+
+c = os.clock()
+
+repeat
+	print('Round: '..Round)
+	print('Epsilon: '..Epsilon)
+	
+	Episode(0,false)
+	
+	if os.clock() - c >= 0.1 then
+		task.wait()
+		c = os.clock()
+		--print(math.round((Round / 2000) * 100)..'% done')
+		print(math.round(math.clamp((0.05 / Epsilon),0,1) * 100)..'% done')
+	end
+until Epsilon <= 0.05--recomment later
+
+--Episode(0.1,true)
+
+while true do
+	print('Round: '..Round)
+	print('Epsilon: '..Epsilon)
+
+	Episode(0.001,false)
+end
+
+for i,v in pairs(RewData.AvgReward) do
+	if v > 2 then
+		return true
+	end
+end
+
+return false
