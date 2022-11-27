@@ -1,1 +1,1 @@
-You don't need to necessarily download the rbxl file, it's just if you want to see everything else I put.
+You don't need to necessarily download the rbxl file, it's just if you want to see everything else I put. I've tested the backpropagation function in my script and it does seem to work on both regression and classification problems with good accuracy. I'm not really sure what the problem is, because I've changed the reward structure a bit, tested different hyperparameters, and tried a few different network structures. Maybe I missed something in my implementation?
