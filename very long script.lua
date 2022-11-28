@@ -587,7 +587,7 @@ local Round
 local LossData
 local RewData
 local Epsilon_Decay = 0.995
-local CopyWeightsEvery = 16
+local CopyWeightsEvery = 32
 local Gamma = 0.95
 local BatchSize = 64
 local MaxMemorySize = 10000
@@ -651,7 +651,7 @@ local function CreateNetworks()
 	Epsilon = 1--0.05
 	Round = 1
 	LossData = {Loss = {}}
-	RewData = {AvgReward = {}} -- Will eventually look like RewData = {Reward = {1,2,3,4,2,5,2,7,...}} and LossData = {Loss = {1,25,2,3,1,0.5,0.8,0.3,...}}
+	RewData = {Reward = {}} -- Will eventually look like RewData = {Reward = {1,2,3,4,2,5,2,7,...}} and LossData = {Loss = {1,25,2,3,1,0.5,0.8,0.3,...}}
 end
 
 local function Save()
@@ -903,14 +903,14 @@ local function CalculateInputs()
 	else
 		table.insert(Return,0)
 	end
-
-	if Head.Orientation == Vector3.new(0,-90,0) then
+	
+	if Head.Orientation == Vector3.new(0,90,0) then
 		table.insert(Return,1)
 	else
 		table.insert(Return,0)
 	end
 
-	if Head.Orientation == Vector3.new(0,90,0) then
+	if Head.Orientation == Vector3.new(0,-90,0) then
 		table.insert(Return,1)
 	else
 		table.insert(Return,0)
@@ -1030,111 +1030,90 @@ local function FillExperienceReplayTable(AmtWait,Debug)
 	Alive = true
 end
 
---[[task.wait(5)
-FillExperienceReplayTable(0.1,false)
-
-print(ExperienceReplayTable)
-
-task.wait(5)
-
-local Count = 0
-local Clock = os.clock()
-local i = 1
-
-for a,b in pairs(ExperienceReplayTable) do
-	print('Episode : '..a)
-	print(b)
-	local Loss = 0
-	local AvgReward = 0
-
-	for k,v in pairs(b) do
-		local State = v.Cur_s
-		local ActionTaken = v.Cur_a
-		local Rew = v.Reward
-		local Terminal = v.TerminalState
-		local NextState
-		local Q_Target
-		
-		print(State)
-		print(ActionTaken)
-		print(Rew)
-		print(Terminal)
-
-		if not Terminal then
-			NextState = v.Next_s
-			print(NextState)
-
-			local TargetQValues = NeuralNetworkFramework.CalculateForwardPass('TNetwork',NextState)
-			local QValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',NextState)
-			local HighestIndex = math.random(1,#QValues)
-			
-			local Check = false
-
-			for j,v2 in pairs(QValues) do
-				if v2 > QValues[HighestIndex] then
-					HighestIndex = j
-				end
-				
-				if v2 ~= TargetQValues[j] then
-					print('Found difference between TNetwork and QNetwork!')
-				end
-			end
-			
-			print(TargetQValues)
-			print(QValues)
-			print(HighestIndex)
-
-			Q_Target = Rew + Gamma * TargetQValues[HighestIndex]
-		else
-			Q_Target = Rew
-		end
-
-		local Outputs = NeuralNetworkFramework.CalculateForwardPass('QNetwork',State)
-		local TargetValues = {}
-
-		for j,v2 in pairs(Outputs) do
-			if j ~= ActionTaken then
-				table.insert(TargetValues,v2)
-			else
-				table.insert(TargetValues,Q_Target)
-			end
-		end
-		
-		local Error = NeuralNetworkFramework.Backpropagate('QNetwork',Outputs,TargetValues,'MeanSquaredError')
-		
-		Loss += Error
-		AvgReward += Rew
-
-		Count += 1
-
-		if Count == CopyWeightsEvery then
-			UpdateTargetNetwork()
-			Count = 0
-		end
-
-		if i % 100 == 0 then
-			task.wait()
-		end
-
-		i += 1
-	end
-
-	Loss /= #b
-	AvgReward /= #b
-
-	table.insert(LossData.Loss,Loss)
-	table.insert(RewData.AvgReward,AvgReward)
-	break
+local function OutputToActionString(Output)
+	local Table = {'Up','Down','Right','Left'}
+	
+	return Table[Output]
 end
 
-print('Done!')--]]
+local function InputsToDescription(Inputs)
+	local ReturnTable = {}
+	
+	if Inputs[1] == 1 then
+		table.insert(ReturnTable,'Apple Z is greater than snake head Z')
+	else
+		table.insert(ReturnTable,'Apple Z is not greater than snake head Z')
+	end
+	
+	if Inputs[2] == 1 then
+		table.insert(ReturnTable,'Apple Z is less than snake head Z')
+	else
+		table.insert(ReturnTable,'Apple Z is not less than snake head Z')
+	end
+	
+	if Inputs[3] == 1 then
+		table.insert(ReturnTable,'Apple X is greater than snake head X')
+	else
+		table.insert(ReturnTable,'Apple X is not greater than snake head X')
+	end
+	
+	if Inputs[4] == 1 then
+		table.insert(ReturnTable,'Apple X is less than snake head X')
+	else
+		table.insert(ReturnTable,'Apple X is not less than snake head X')
+	end
+	
+	if Inputs[5] == 1 then
+		table.insert(ReturnTable,'There is an obstacle in front of the snake head.')
+	else
+		table.insert(ReturnTable,'There is no obstacle in front of the snake head.')
+	end
+	
+	if Inputs[6] == 1 then
+		table.insert(ReturnTable,'There is an obstacle to the left of the snake head.')
+	else
+		table.insert(ReturnTable,'There is no obstacle to the left of the snake head.')
+	end
+	
+	if Inputs[7] == 1 then
+		table.insert(ReturnTable,'There is an obstacle to the right of the snake head.')
+	else
+		table.insert(ReturnTable,'There is no obstacle to the right of the snake head.')
+	end
+	
+	if Inputs[8] == 1 then
+		table.insert(ReturnTable,'The snake is going up.')
+	else
+		table.insert(ReturnTable,'The snake is not going up.')
+	end
+	
+	if Inputs[9] == 1 then
+		table.insert(ReturnTable,'The snake is going down.')
+	else
+		table.insert(ReturnTable,'The snake is not going down.')
+	end
+	
+	if Inputs[10] == 1 then
+		table.insert(ReturnTable,'The snake is going right.')
+	else
+		table.insert(ReturnTable,'The snake is not going right.')
+	end
+	
+	if Inputs[11] == 1 then
+		table.insert(ReturnTable,'The snake is going left.')
+	else
+		table.insert(ReturnTable,'The snake is not going left.')
+	end
+	
+	return ReturnTable
+end
 
 local function Episode(AmtWait,Debug)
 	PrevState = nil
 	PrevAction = nil
 	PrevReward = nil
 	
-	local AvgReward = 0
+	local TotalReward = 0
 	local NumIterations = 0
 	local Loss = 0
 	
@@ -1156,17 +1135,12 @@ local function Episode(AmtWait,Debug)
 			Action = math.random(1,4)
 			
 			local OutputQValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',Inputs)
-
+			
 			if Debug then print(table.concat(OutputQValues,', ')) end
 
 			for i,v in pairs(OutputQValues) do
 				if v > OutputQValues[Action] then
 					Action = i
-				end
-
-				if math.abs(v) > 1000 then
-					warn('smth wrong')
-					warn(OutputQValues)
 				end
 			end
 		end
@@ -1210,7 +1184,7 @@ local function Episode(AmtWait,Debug)
 			table.remove(ExperienceReplayTable,1)
 		end
 		
-		AvgReward += Reward
+		TotalReward += Reward
 		NumIterations += 1
 	until not Alive
 	
@@ -1245,7 +1219,9 @@ local function Episode(AmtWait,Debug)
 						HighestIndex = j
 					end
 				end
-
+				
+				--print('Q Values for next state: '..table.concat(QValues,', '))
+				--print('Target network values for next state: '..table.concat(TargetQValues,', '))
 				Q_Target = Rew + Gamma * TargetQValues[HighestIndex]
 			else
 				Q_Target = Rew
@@ -1262,20 +1238,17 @@ local function Episode(AmtWait,Debug)
 				end
 			end
 			
-			if State[5] == 1 then
-				--[[print(Outputs)
-				print(ActionTaken)
-				print(TargetValues)==]]
-			end
-			
+			--print('Outputs: '..table.concat(Outputs,', '))
+			--print('Target Q Values: '..table.concat(TargetValues,', '))
 			local Error = NeuralNetworkFramework.Backpropagate('QNetwork',Outputs,TargetValues,'MeanSquaredError')
-			
+			--print('New Q Values for state: '..table.concat(NeuralNetworkFramework.CalculateForwardPass('QNetwork',State),', '))
 			Loss += Error
 			
 			Count += 1
 
 			if Count == CopyWeightsEvery then
 				UpdateTargetNetwork()
+				Count = 0
 			end
 
 			if Clock - os.clock() >= 0.1 then
@@ -1285,7 +1258,6 @@ local function Episode(AmtWait,Debug)
 		end
 	end
 	
-	AvgReward /= NumIterations
 	Loss /= BatchSize
 
 	for i,v in pairs(workspace.Snake:GetChildren()) do
@@ -1304,13 +1276,13 @@ local function Episode(AmtWait,Debug)
 		Epsilon *= Epsilon_Decay
 	end
 	
-	table.insert(RewData.AvgReward,AvgReward)
+	table.insert(RewData.Reward,TotalReward)
 	table.insert(LossData.Loss,Loss)
 end
 
 local c = os.clock()
 
---[[local NumDataCollectingEpisodes = BatchSize--3200
+local NumDataCollectingEpisodes = BatchSize--3200
 
 for i = 1,NumDataCollectingEpisodes do
 	FillExperienceReplayTable(0,false)
@@ -1320,105 +1292,11 @@ for i = 1,NumDataCollectingEpisodes do
 		c = os.clock()
 		print(math.round(i / NumDataCollectingEpisodes * 100)..'%')
 	end
-end--]]
-
---[[print('Going to peform gradient descent in 5 seconds!')
-
-task.wait(5)
-
-print('Start!')
-
-task.wait()
-
-local Count = 0
-local Clock = os.clock()
-local i = 1
-
-local Loss = 0
-local AvgReward = 0
-
-for h = 1,NumDataCollectingEpisodes do
-	local Batch = {}
-	
-	for j = 1,BatchSize do
-		table.insert(Batch,ExperienceReplayTable[math.random(1,#ExperienceReplayTable)])
-	end
-	
-	Shuffle(Batch)
-	
-	for k,v in pairs(Batch) do
-		local State = v.Cur_s
-		local ActionTaken = v.Cur_a
-		local Rew = v.Reward
-		local Terminal = v.TerminalState
-		local NextState
-		local Q_Target
-
-		if not Terminal then
-			NextState = v.Next_s
-
-			local TargetQValues = NeuralNetworkFramework.CalculateForwardPass('TNetwork',NextState)
-			local QValues = NeuralNetworkFramework.CalculateForwardPass('QNetwork',NextState)
-			local HighestIndex = math.random(1,#QValues)
-
-			for j,v2 in pairs(QValues) do
-				if v2 > QValues[HighestIndex] then
-					HighestIndex = j
-				end
-			end
-
-			Q_Target = Rew + Gamma * TargetQValues[HighestIndex]
-		else
-			Q_Target = Rew
-		end
-
-		local Outputs = NeuralNetworkFramework.CalculateForwardPass('QNetwork',State)
-		local TargetValues = {}
-
-		for j,v2 in pairs(Outputs) do
-			if j ~= ActionTaken then
-				table.insert(TargetValues,v2)
-			else
-				table.insert(TargetValues,Q_Target)
-			end
-		end
-
-		local Error = NeuralNetworkFramework.Backpropagate('QNetwork',Outputs,TargetValues,'MeanSquaredError')
-		
-		Loss += Error
-		AvgReward += Rew
-		
-		Count += 1
-
-		if Count == CopyWeightsEvery then
-			UpdateTargetNetwork()
-			Count = 0
-		end
-		
-		if os.clock() - Clock >= 0.1 then
-			print(math.round((h / NumDataCollectingEpisodes) * 100)..'% done')
-			task.wait()
-			Clock = os.clock()
-		end
-		
-		i += 1
-	end
-	
-	Loss /= #Batch
-	AvgReward /= #Batch
-
-	table.insert(LossData.Loss,Loss)
-	table.insert(RewData.AvgReward,AvgReward)
 end
-
-print('Done!')
-
-Epsilon = 0--]]
-
---Episode(0.1,true)
 
 c = os.clock()
 
+--Episode(0.1,true)
 repeat
 	print('Round: '..Round)
 	print('Epsilon: '..Epsilon)
@@ -1428,12 +1306,9 @@ repeat
 	if os.clock() - c >= 0.1 then
 		task.wait()
 		c = os.clock()
-		--print(math.round((Round / 2000) * 100)..'% done')
-		print(math.round(math.clamp((0.05 / Epsilon),0,1) * 100)..'% done')
+		print(math.round((Round / 2000) * 100)..'% done')
 	end
-until Epsilon <= 0.05--recomment later
-
---Episode(0.1,true)
+until Round == 2000
 
 while true do
 	print('Round: '..Round)
@@ -1441,11 +1316,3 @@ while true do
 
 	Episode(0.001,false)
 end
-
-for i,v in pairs(RewData.AvgReward) do
-	if v > 2 then
-		return true
-	end
-end
-
-return false
